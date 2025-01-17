@@ -376,6 +376,14 @@
       "__uuid__": "282d6ef2-4aa4-4177-b716-b2f17a987558",
       "__expectedType__": "cc.Prefab"
     },
+    "trigglePrefab": {
+      "__uuid__": "9b714505-2e15-44e8-a535-e23a259affa2",
+      "__expectedType__": "cc.Prefab"
+    },
+    "replenishPrefab": {
+      "__uuid__": "cabbca1c-e66d-4c4e-8c1a-0d4386375965",
+      "__expectedType__": "cc.Prefab"
+    },
     "_id": "18j3og2slFIqF+MIlJVImJ"
   },
   {

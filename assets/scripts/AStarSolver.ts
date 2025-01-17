@@ -3,6 +3,7 @@ import { BloxorzTerrain } from './BloxorzTerrain';
 import { BloxorzBlock } from './BloxorzBlock';
 import { BloxorzMove } from './BloxorzMove';
 import { BloxorzNode } from './BloxorzNode';
+import { BloxorzPosition } from './BloxorzPosition';
 const { ccclass, property } = _decorator;
 
 type HeuristicFunction = 'Euclidean' | 'Chebyshev';
@@ -22,118 +23,143 @@ export class AStarSolver extends Component {
     }
 
     solve(terrain: BloxorzTerrain): BloxorzMove[] {
-        const openList: BloxorzNode[] = [];  // Initialize open list
-        const closedList: BloxorzNode[] = []; // Initialize closed list
+        const openList: BloxorzNode[] = [];
+        const closedSet: Set<string> = new Set();
 
         const startPos = terrain.getStart();
         if (!startPos) throw new Error("Start position not found");
         
-        const startBloxorzBlock = new BloxorzBlock(startPos, startPos);
+        const startBlock = new BloxorzBlock(startPos, startPos);
         const startNode = new BloxorzNode(
-            startBloxorzBlock,
+            startBlock,
             null,
             null,
-             0,
             0,
-            0
+            0,
+            0,
+            new Set<number>()
         );
 
         const goalPos = terrain.getGoal();
         if (!goalPos) throw new Error("Goal position not found");
-        
-        const goalBloxorzBlock = new BloxorzBlock(goalPos, goalPos);
 
         openList.push(startNode);
 
         while (openList.length > 0) {
-            // Get the current node
-            let currentNode = openList[0];
-            let currentIndex = 0;
-
-            for (let i = 0; i < openList.length; i++) {
-                if (openList[i].f < currentNode.f) {
-                    currentNode = openList[i];
-                    currentIndex = i;
-                }
-            }
-
-            openList.splice(currentIndex, 1);
-            closedList.push(currentNode);
+            const currentNode = openList.reduce((min, node) => 
+                node.f < min.f ? node : min, openList[0]);
+            
+            openList.splice(openList.indexOf(currentNode), 1);
+            
+            const stateKey = this.getStateKey(
+                currentNode.block, 
+                currentNode.triggeredGroups,
+                currentNode.block.isStanding()
+            );
+            
+            if (closedSet.has(stateKey)) continue;
+            closedSet.add(stateKey);
 
             if (terrain.done(currentNode.block)) {
-                const path: (BloxorzMove | null)[] = [];
-                let current: BloxorzNode | null = currentNode;
-                
-                // BackTrack Moves
-                while (current !== null) {
-                    path.push(current.move);
-                    current = current.parent;
-                }
-                
-                // Return reversed order of Moves (excluding the initial null)
-                return path.reverse().filter((move): move is BloxorzMove => move !== null);
+                return this.reconstructPath(currentNode);
             }
 
-            const children = this.getChildren(currentNode, terrain);
-
-            for (const child of children) {
-                // continue if child is on the closed list
-                if (closedList.some(node => node === child)) {
-                    continue;
+            const moves = [BloxorzMove.Left, BloxorzMove.Right, BloxorzMove.Up, BloxorzMove.Down];
+            
+            for (const move of moves) {
+                let nextBlock: BloxorzBlock;
+                switch (move) {
+                    case BloxorzMove.Left:
+                        nextBlock = currentNode.block.left();
+                        break;
+                    case BloxorzMove.Right:
+                        nextBlock = currentNode.block.right();
+                        break;
+                    case BloxorzMove.Up:
+                        nextBlock = currentNode.block.up();
+                        break;
+                    case BloxorzMove.Down:
+                        nextBlock = currentNode.block.down();
+                        break;
                 }
 
-                // Create the f, g, and h values
-                child.g = currentNode.g + 1;
-
-                // Using Euclidean distance as heuristic function
-                if (this.hFunc === 'Euclidean') {
-                    child.h = Math.sqrt(
-                        Math.pow(child.block.p2.x - goalBloxorzBlock.p2.x, 2) + 
-                        Math.pow(child.block.p2.z - goalBloxorzBlock.p2.z, 2)
-                    );
+                const newTriggeredGroups = new Set(currentNode.triggeredGroups);
+                const { valid, newTriggers } = terrain.checkMove(nextBlock);
+                
+                if (!valid) continue;
+                
+                if (nextBlock.isStanding()) {
+                    newTriggers.forEach(groupNum => newTriggeredGroups.add(groupNum));
                 }
 
-                // Using Chebyshev distance as heuristic function
-                if (this.hFunc === 'Chebyshev') {
-                    const hn1 = Math.max(
-                        Math.abs(child.block.p1.x - goalBloxorzBlock.p1.x),
-                        Math.abs(child.block.p1.z - goalBloxorzBlock.p1.z)
-                    );
-                    const hn2 = Math.max(
-                        Math.abs(child.block.p2.x - goalBloxorzBlock.p2.x),
-                        Math.abs(child.block.p2.z - goalBloxorzBlock.p2.z)
-                    );
-                    child.h = Math.max(hn1, hn2);
+                const newNode = new BloxorzNode(
+                    nextBlock,
+                    move,
+                    currentNode,
+                    0,
+                    currentNode.g + 1,
+                    this.calculateHeuristic(nextBlock, goalPos),
+                    newTriggeredGroups
+                );
+                
+                newNode.f = newNode.g + newNode.h;
+
+                const newStateKey = this.getStateKey(
+                    nextBlock, 
+                    newTriggeredGroups,
+                    nextBlock.isStanding()
+                );
+                
+                const existingBetter = openList.some(node => 
+                    this.getStateKey(
+                        node.block, 
+                        node.triggeredGroups,
+                        node.block.isStanding()
+                    ) === newStateKey 
+                    && node.g <= newNode.g
+                );
+
+                if (!existingBetter && !closedSet.has(newStateKey)) {
+                    openList.push(newNode);
                 }
-
-                child.f = child.g + child.h;
-
-                // Child is already in the open list
-                const openNode = openList.find(node => node === child);
-                if (openNode && child.g > openNode.g) {
-                    continue;
-                }
-
-                // Add the child to the open list
-                openList.push(child);
             }
         }
 
-        return []; // Return empty array if no solution found
+        return [];
     }
 
-    private getChildren(currentNode: BloxorzNode, terrain: BloxorzTerrain): BloxorzNode[] {
-        const legalNeighbours = terrain.legalNeighbors(currentNode.block);
-        return legalNeighbours.map(({ block, move }) => 
-            new BloxorzNode(
-                block,
-                move,
-                currentNode,
-                0,
-                0,
-                0
-            )
-        );
+    private getStateKey(
+        block: BloxorzBlock, 
+        triggeredGroups: Set<number>, 
+        isStanding: boolean
+    ): string {
+        const blockKey = `${block.p1.x},${block.p1.z},${block.p2.x},${block.p2.z}`;
+        const standingKey = isStanding ? 'S' : 'L';
+        const triggeredKey = Array.from(triggeredGroups).sort().join(',');
+        return `${blockKey}:${standingKey}:${triggeredKey}`;
+    }
+
+    private calculateHeuristic(block: BloxorzBlock, goal: BloxorzPosition): number {
+        const dx1 = Math.abs(block.p1.x - goal.x);
+        const dz1 = Math.abs(block.p1.z - goal.z);
+        const dx2 = Math.abs(block.p2.x - goal.x);
+        const dz2 = Math.abs(block.p2.z - goal.z);
+        
+        const standingPenalty = block.isStanding() ? 0 : 1;
+        
+        return Math.min(dx1 + dz1, dx2 + dz2) + standingPenalty;
+    }
+
+    private reconstructPath(node: BloxorzNode): BloxorzMove[] {
+        const path: BloxorzMove[] = [];
+        let current: BloxorzNode | null = node;
+        
+        while (current && current.move !== null) {
+            path.unshift(current.move);
+            current = current.parent;
+        }
+        
+        return path;
     }
 }
 

@@ -68,7 +68,7 @@ export class main extends Component {
     }
 
     start() {
-        this.level = 6;
+        this.level = 8;
         this.updateTerrain();
     }
 
@@ -76,48 +76,108 @@ export class main extends Component {
         let level = this.level.toString()
         this.bloxorzTerrain = this.groundNode.getComponent(BloxorzTerrain)
 
+        // 加载并解析关卡
         await this.bloxorzTerrain.parseTerrain("levels/level" + level);
         let startPos = this.bloxorzTerrain.getStart()
-        log("startPos", startPos);
-        this.blockNode.setPosition(startPos.z, 1, startPos.x);
+        let goalPos = this.bloxorzTerrain.getGoal()
+        
+        console.log("========== 开始关卡验证 ==========");
+        console.log("起点位置:", `(${startPos.x}, ${startPos.z})`);
+        console.log("终点位置:", `(${goalPos.x}, ${goalPos.z})`);
+        console.log("特殊地块：");
+        console.log("- 地块1 触发补充地块a");
+        console.log("- 地块2 触发补充地块b");
+        console.log("- 地块3 触发补充地块c");
 
-
-        // 添加测试代码
+        // 执行A*验证
         const solver = new AStarSolver();
         const solution = solver.solve(this.bloxorzTerrain);
-        console.log("Solution:", solution);
+        
         if (solution.length > 0) {
-            console.log("Found solution with", solution.length, "moves:");
+            console.log("\n✅ 关卡验证成功！");
+            console.log(`总步数: ${solution.length} 步`);
+            console.log("\n详细解决方案:");
+            
+            // 模拟执行解决方案
+            let currentBlock = new BloxorzBlock(startPos, startPos);
+            console.log(`初始状态: 位置(${startPos.x},${startPos.z}), 竖直站立`);
+            
             solution.forEach((move, index) => {
-                console.log(`Step ${index + 1}: ${BloxorzMove[move]}`);
+                // 记录当前状态
+                const prevState = {
+                    p1: {x: currentBlock.p1.x, z: currentBlock.p1.z},
+                    p2: {x: currentBlock.p2.x, z: currentBlock.p2.z},
+                    standing: currentBlock.isStanding()
+                };
+                
+                // 执行移动
+                switch(move) {
+                    case BloxorzMove.Left:
+                        currentBlock = currentBlock.left();
+                        console.log(`${index + 1}. ← 左移`);
+                        break;
+                    case BloxorzMove.Right:
+                        currentBlock = currentBlock.right();
+                        console.log(`${index + 1}. → 右移`);
+                        break;
+                    case BloxorzMove.Up:
+                        currentBlock = currentBlock.up();
+                        console.log(`${index + 1}. ↑ 上移`);
+                        break;
+                    case BloxorzMove.Down:
+                        currentBlock = currentBlock.down();
+                        console.log(`${index + 1}. ↓ 下移`);
+                        break;
+                }
+                
+                // 检查是否触发特殊地块
+                if (currentBlock.isStanding()) {
+                    const pos = currentBlock.p1;
+                    if ((pos.x === 2 && pos.z === 4) || // 地块1的位置
+                        (pos.x === 3 && pos.z === 4) || // 地块2的位置
+                        (pos.x === 5 && pos.z === 4)) { // 地块3的位置
+                        console.log(`   触发特殊地块！位置(${pos.x},${pos.z})`);
+                    }
+                }
+                
+                console.log(`   位置: (${currentBlock.p1.x},${currentBlock.p1.z}), (${currentBlock.p2.x},${currentBlock.p2.z})`);
+                console.log(`   状态: ${currentBlock.isStanding() ? '竖直' : '水平'}`);
             });
+            
         } else {
-            console.log("No solution found!");
+            console.log("\n❌ 警告：该关卡无法通过！");
+            console.log("可能的问题：");
+            console.log("1. 特殊地块周围缺少足够空间进行竖直站立");
+            console.log("2. 补充地块的位置无法形成有效路径");
+            console.log("3. 某些特殊地块无法按正确顺序触发");
+            console.log("4. 从起点到终点缺少必要的连接路径");
         }
 
-
-        this.bloxorzBlock = new BloxorzBlock(startPos, startPos)
+        // 继续原有的初始化逻辑
+        this.blockNode.setPosition(startPos.z, 1, startPos.x);
+        this.bloxorzBlock = new BloxorzBlock(startPos, startPos);
 
         tween(this.blockNode).delay(0.5).call(
             () => {
                 this.blockNode.setPosition(startPos.z, 1, startPos.x);
             }
-        ).start()
-        log("================================= init ",this.bloxorzBlock)
+        ).start();
+    }
 
-
-        // this.bloxorzTerrain = this.groundNode.getComponent(BloxorzTerrain);
-        // await this.bloxorzTerrain.parseTerrain("levels/level01");
-        // let startPos = this.bloxorzTerrain.getStart();
+    async validateLevel() {
+        const solver = new AStarSolver();
+        const solution = solver.solve(this.bloxorzTerrain);
         
-        // // 调整方块的初始位置，使用相同的坐标转换逻辑
-        // const height = this.bloxorzTerrain.getMap().length;
-        // const width = this.bloxorzTerrain.getMap()[0].length;
-        // const transformedX = startPos.y - width / 2;
-        // const transformedZ = height - 1 - startPos.x;
-        
-        // this.blockNode.setPosition(transformedX, 1, transformedZ);
-        // this.bloxorzBlock = new BloxorzBlock(startPos, startPos);
+        if (solution.length > 0) {
+            console.log("关卡可通过！最短路径需要", solution.length, "步");
+            solution.forEach((move, index) => {
+                console.log(`第 ${index + 1} 步: ${BloxorzMove[move]}`);
+            });
+            return true;
+        } else {
+            console.log("警告：该关卡无法通过！");
+            return false;
+        }
     }
 
     update(deltaTime: number) {
